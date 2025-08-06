@@ -1,4 +1,3 @@
-# debate_trainer_streamlit.py
 import streamlit as st
 import openai
 import json
@@ -12,8 +11,8 @@ class Evidence(BaseModel):
     source_or_instance: str
 
 class Argument(BaseModel):
-    argument_title: Optional[str]  # Used in normal args/rebuttals
-    argument: Optional[str]        # Used in simplified opponents (one-liner arg)
+    argument_title: Optional[str]
+    argument: Optional[str]
     argument_description: Optional[str]
     supporting_evidence: Optional[List[Evidence]]
     evidence_hint: Optional[str]
@@ -42,16 +41,13 @@ PROMPT_STYLES = {
 }
 
 # --- Utility Functions ---
-
 def extract_json(raw_text):
-    """Extract first JSON object from model output string."""
     try:
         match = re.search(r"\{(?:[^{}]|(?R))*\}", raw_text, flags=re.DOTALL)
         if match:
             return match.group(0)
     except Exception:
         pass
-    # Fallback simpler regex
     try:
         match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
         if match:
@@ -60,7 +56,7 @@ def extract_json(raw_text):
         pass
     return None
 
-# --- Generation Functions ---
+# --- Generation and Scoring Functions ---
 
 @st.cache_data(show_spinner=False)
 def generate_arguments(topic, stance, style="wsdc"):
@@ -92,7 +88,7 @@ IMPORTANT: Output ONLY JSON EXACTLY like this, no extra text:
     raw = resp.choices[0].message.content.strip()
     try:
         return DebateArguments.model_validate_json(raw)
-    except Exception as e:
+    except Exception:
         json_str = extract_json(raw)
         if json_str:
             return DebateArguments.model_validate_json(json_str)
@@ -173,7 +169,6 @@ No extra keys. No array wrapper.
             temperature=0.7
         )
         raw = resp.choices[0].message.content.strip()
-        # Wrap in list for parsing
         try:
             parsed = Rebuttals.model_validate_json(f'{{"rebuttals":[{raw}]}}')
             rebutted.append(parsed.rebuttals[0])
@@ -206,7 +201,6 @@ Output STRICT JSON like:
         return None
 
 # --- Display Functions ---
-
 def display_argument_cards(debate_args: DebateArguments):
     for idx, arg in enumerate(debate_args.arguments, start=1):
         st.subheader(f"ARGUMENT {idx}: {arg.argument_title or arg.argument}")
@@ -233,12 +227,11 @@ def display_rebuttal_cards(rebut_obj: Rebuttals):
 
 st.title("AI Debate Trainer")
 
-# API Key input
-api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
-if not api_key:
-    st.sidebar.warning("Please enter your OpenAI API key to continue.")
+# Read OpenAI API key from secrets.toml
+if "openai_api_key" not in st.secrets:
+    st.error("OpenAI API key not found in Streamlit secrets. Please add it as openai_api_key.")
     st.stop()
-openai.api_key = api_key
+openai.api_key = st.secrets["openai_api_key"]
 
 # Debate setup
 topic = st.text_input("Debate Topic", value="This House Would ban political advertising on social media")
@@ -252,7 +245,6 @@ if 'opponent_arguments' not in st.session_state:
 if 'opponent_rebuttals' not in st.session_state:
     st.session_state.opponent_rebuttals = None
 
-# Generate your arguments
 if st.button("Generate My Arguments"):
     with st.spinner("Generating arguments..."):
         args = generate_arguments(topic, stance, style)
@@ -262,7 +254,6 @@ if st.session_state.your_arguments:
     st.header("Your Arguments")
     display_argument_cards(st.session_state.your_arguments)
 
-# Generate opponent arguments (simplified one-liner format with evidence hint)
 if st.button("Simulate Opponent Arguments"):
     with st.spinner("Simulating opponent arguments..."):
         opp_args = generate_opponents(topic, style)
@@ -308,11 +299,10 @@ if st.session_state.opponent_arguments:
 
         st.markdown("---")
 
-# Instructions sidebar
 st.sidebar.header("How to Use")
 st.sidebar.markdown("""
-1. Enter your OpenAI API key.
-2. Input the debate topic.
+1. Add your OpenAI API key in Streamlit secrets as `openai_api_key`.
+2. Enter the debate topic.
 3. Select your stance and debate style.
 4. Click **Generate My Arguments** to get your arguments.
 5. Click **Simulate Opponent Arguments** to get opponent points.
