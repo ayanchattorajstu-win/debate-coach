@@ -69,15 +69,30 @@ def generate_one_arg(topic, style, stance="in favour", retries=3):
     st.error(f"Failed all attempts. Final raw: {raw}")
     return None
 
-def generate_opponents(topic, style):
-    prompt = {"role":"system","content":SYSTEM_SIMPLE + "You are now opposing the motion."}
-    user=f'Motion: "{topic}". Provide THREE arguments AGAINST in an array as JSON: {{"arguments":[{{...}},...]}}'
-    r=openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[prompt,{"role":"user","content":user}],
-        max_tokens=800
-    )
-    return SimpleArgList.model_validate_json(r.choices[0].message.content.strip())
+def generate_opponents(topic, style, retries=3):
+    """
+    Generates three arguments for the opposition and validates the JSON output.
+    Includes retry logic to handle potential parsing errors from the LLM.
+    """
+    prompt = {"role":"system","content":SYSTEM_SIMPLE + "You are now opposing the motion. You MUST return an array of 3 JSON objects."}
+    user = f'Motion: "{topic}". Provide THREE arguments AGAINST in an array as JSON: {{"arguments":[{{...}},...]}}'
+
+    for i in range(1, retries + 1):
+        try:
+            r = openai.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[prompt, {"role":"user","content":user}],
+                max_tokens=800,
+                temperature=0.7
+            )
+            raw = r.choices[0].message.content.strip()
+            return SimpleArgList.model_validate_json(raw)
+        except Exception as e:
+            st.warning(f"Attempt {i}/{retries} failed to parse JSON from AI: {e}")
+            st.text(f"Raw AI Output: {raw}")
+
+    st.error("Failed to generate and parse opponent arguments after multiple attempts.")
+    return SimpleArgList(arguments=[])
 
 def score_rebuttal(text, opp_argument, topic):
     sc=f"""Score this rebuttal (1–10 Logic,Evidence,Relevance,Style):
@@ -155,3 +170,4 @@ if st.session_state['opponent_args']:
             if st.button("Reveal AI rebuttal", key=f"a_{idx}"):
                 with st.spinner("Generating AI rebuttal..."):
                     st.json(ai_rebuttal(arg))
+
