@@ -79,7 +79,44 @@ def show_rebuttal(r:Rebuttal):
     ev = r.counter_evidence
     st.write(f"✅ {ev.evidence_description} ({ev.source_or_instance})")
     st.markdown("---")
+def generate_one_argument(topic, style):
+    """
+    Generates exactly one supporting argument for the motion.
+    Returns an Argument object if valid JSON is produced, or None (with raw text shown to user).
+    """
+    system_prompt = (
+        PROMPT_STYLES[style] +
+        """
+IMPORTANT: You MUST output a single JSON OBJECT with these EXACT keys, no more/no less:
+{
+  "argument_title": "...",
+  "argument_description": "...",
+  "supporting_evidence":[
+      {"evidence_description":"...","source_or_instance":"..."}
+  ],
+  "famous_quote":"..."
+}
+Do NOT output markdown, no backticks, no lists, no explanation. Only raw JSON object.
+"""
+    )
 
+    user_prompt = f"Motion: \"{topic}\". Generate ONE argument firmly in favour."
+
+    res = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role":"system","content":system_prompt},
+                  {"role":"user","content":user_prompt}],
+        max_tokens=650,
+        temperature=0.7
+    )
+    raw = res.choices[0].message.content.strip()
+
+    try:
+        return Argument.model_validate_json(raw)
+    except Exception as e:
+        st.error("Could not parse JSON. Raw model output shown below to help adjust prompting.")
+        st.text(raw)
+        return None
 # ======== 5. OpenAI Functions =======================================
 def generate_one_argument(topic, style):
     """Generate exactly one argument JSON."""
