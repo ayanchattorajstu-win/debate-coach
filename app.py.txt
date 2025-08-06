@@ -1,0 +1,196 @@
+import streamlit as st
+import openai
+import json
+from pydantic import BaseModel
+from typing import List
+import random
+
+# ==============================================
+# 1. SECRET API KEY (set in Streamlit Cloud)
+# ==============================================
+openai.api_key = st.secrets["openai_api_key"]
+
+# ==============================================
+# 2. Pydantic Models
+# ==============================================
+class Evidence(BaseModel):
+    evidence_description: str
+    source_or_instance: str
+
+class Argument(BaseModel):
+    argument_title: str
+    argument_description: str
+    supporting_evidence: List[Evidence]
+    famous_quote: str
+
+class DebateArguments(BaseModel):
+    arguments: List[Argument]
+
+class Rebuttal(BaseModel):
+    original_argument_title: str
+    counter_argument: str
+    counter_evidence: Evidence
+
+class Rebuttals(BaseModel):
+    rebuttals: List[Rebuttal]
+
+# ==============================================
+# 3. Default Debate Motions
+# ==============================================
+DEFAULT_MOTIONS = [
+    "This House Would ban TikTok",
+    "This House Believes that AI will replace teachers",
+    "This House Would remove zoos",
+    "This House Believes money spent on space exploration is a waste",
+    "This House Would ban private cars in cities",
+    "This House Believes exams do more harm than good",
+    "This House Would make voting compulsory",
+    "This House Believes that influencers are bad role models",
+    "This House Would legalise all drugs",
+    "This House Believes that patriotism is dangerous",
+    "This House Would tax the rich heavily to fund basic income",
+    "This House Believes that animals have equal rights",
+    "This House Would abolish homework",
+    "This House Believes social media does more harm than good",
+    "This House Would ban animal testing",
+    "This House Believes nuclear energy is the future",
+    "This House Would replace politicians with experts",
+    "This House Believes tradition holds back progress",
+    "This House Would limit AI research",
+    "This House Believes success is luck, not hard work"
+]
+
+# ==============================================
+# 4. Style Presets
+# ==============================================
+PROMPT_STYLES = {
+    "wsdc": """You are an elite debate strategist trained for WSDC.
+Return 3 serious arguments + 2 evidence points each in JSON only.""",
+    "aggressive": """You are an aggressive strategist.
+Return 3 ruthless arguments in JSON only.""",
+    "policy": """You are a policy debater.
+Return 3 analytical arguments in JSON.""",
+    "rhetorical": """You are a rhetorical speaker.
+Return 3 persuasive arguments with vivid examples in JSON only."""
+}
+
+# ==============================================
+# 5. Display Helpers
+# ==============================================
+def display_argument_cards(args_obj):
+    data = args_obj.model_dump()
+    for i, a in enumerate(data['arguments'], start=1):
+        st.subheader(f"ARGUMENT {i}: {a['argument_title']}")
+        st.write(a['argument_description'])
+        for ev in a['supporting_evidence']:
+            st.write(f"✅ {ev['evidence_description']} ({ev['source_or_instance']})")
+        if a.get('famous_quote'):
+            st.write(f"💬 *{a['famous_quote']}*")
+        st.markdown("---")
+
+def display_rebuttal_cards(reb_obj):
+    d = reb_obj.model_dump()
+    for r in d['rebuttals']:
+        st.subheader(f"REBUTTAL to \"{r['original_argument_title']}\"")
+        st.write(f"→ {r['counter_argument']}")
+        ev = r['counter_evidence']
+        st.write(f"✅ {ev['evidence_description']} ({ev['source_or_instance']})")
+        st.markdown("---")
+
+# ==============================================
+# 6. OpenAI generation
+# ==============================================
+def generate_arguments(topic, style="wsdc"):
+    system_prompt = PROMPT_STYLES[style] + """
+IMPORTANT: Output ONLY JSON in the form:
+{"arguments":[{...}]}"""
+    user_prompt = f"Motion: \"{topic}\". Generate 3 arguments IN FAVOUR."
+    resp = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}],
+        max_tokens=1000,temperature=0.7
+    )
+    return DebateArguments.model_validate_json(resp.choices[0].message.content.strip())
+
+def simulate_opponent(topic, style="wsdc"):
+    system_prompt = PROMPT_STYLES[style] + """
+Return ONLY JSON in the same structure, but ARGUE AGAINST."""
+    user_prompt = f"Motion: \"{topic}\". Generate 3 opposing arguments."
+    resp = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}],
+        max_tokens=1000,temperature=0.7
+    )
+    return DebateArguments.model_validate_json(resp.choices[0].message.content.strip())
+
+def score_rebuttal(r_text, opp_title, topic, style):
+    score_prompt = f"""You are a debate coach. Score this:
+Logic, Evidence, Relevance, Style 1–10.
+Opponent arg: "{opp_title}" Motion: "{topic}"
+Rebuttal: "{r_text}". Return JSON like {{"Logic":7,"Evidence":5,"Relevance":9,"Style":6,"Suggestion":"..."}}"""
+    r = openai.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role":"system","content":"You are a coach."},{"role":"user","content":score_prompt}],
+        max_tokens=200,temperature=0.3
+    )
+    return json.loads(r.choices[0].message.content.strip())
+
+def generate_rebuttals(opponent_json_str):
+    system_prompt = """You are a rapid rebuttal strategist. Return ONLY JSON:
+{"original_argument_title":"...","counter_argument":"...","counter_evidence":{"evidence_description":"...","source_or_instance":"..."}}"""
+    opp = DebateArguments.model_validate_json(opponent_json_str)
+    rebuttals=[]
+    for arg in opp.arguments:
+        mini={"arguments":[arg.model_dump()]}
+        resp=openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role":"system","content":system_prompt},
+                      {"role":"user","content":json.dumps(mini)}],
+            max_tokens=600,temperature=0.7
+        )
+        raw=resp.choices[0].message.content.strip()
+        reb=Rebuttals.model_validate_json('{"rebuttals":['+raw+']}')
+        rebuttals.append(reb.rebuttals[0])
+    return Rebuttals(rebuttals=rebuttals)
+
+# ==============================================================
+# 7. Streamlit UI
+# ==============================================================
+
+st.title("AI Debate Trainer")
+
+# Motion randomiser
+uploaded_file = st.sidebar.file_uploader("Upload .txt motion list (optional)", type="txt")
+if uploaded_file:
+    MOTIONS = [l.strip() for l in uploaded_file.read().decode('utf-8').splitlines() if l.strip()]
+else:
+    MOTIONS = DEFAULT_MOTIONS
+
+if st.button("🎲 Random Motion"):
+    st.session_state['topic'] = random.choice(MOTIONS)
+
+topic = st.text_input("Debate Topic", st.session_state.get("topic", ""), key="topic")
+style = st.selectbox("Style", list(PROMPT_STYLES.keys()))
+simulate = st.checkbox("Auto-simulate opponent?", value=True)
+
+if st.button("Generate My Arguments"):
+    args = generate_arguments(topic, style)
+    display_argument_cards(args)
+
+    if simulate:
+        opp = simulate_opponent(topic, style)
+        st.header("Simulated Opponent")
+        for i, oa in enumerate(opp.arguments):
+            st.subheader(f"Opp Argument {i+1}: {oa.argument_title}")
+            st.write(oa.argument_description)
+            for ev in oa.supporting_evidence:
+                st.write(f"- {ev.evidence_description} ({ev.source_or_instance})")
+            st.write(f"💬 {oa.famous_quote}")
+
+            user_reb = st.text_area("Your rebuttal:", key=f"usr_{i}")
+            if st.button("Score Rebuttal", key=f"s_{i}"):
+                st.json(score_rebuttal(user_reb, oa.argument_title, topic, style))
+            if st.button("Reveal AI Rebuttal", key=f"a_{i}"):
+                mini=json.dumps({"arguments":[oa.model_dump()]})
+                rb=generate_rebuttals(mini)
+                display_rebuttal_cards(rb)
