@@ -5,33 +5,19 @@ from pydantic import BaseModel
 from typing import List
 import random
 
-# ======== 0. Secure API key (for Streamlit Cloud Secrets) =========
+# === Secure key from Streamlit Cloud secrets ===
 openai.api_key = st.secrets["openai_api_key"]
 
-# ======== 1. Pydantic Models =====================================
-class Evidence(BaseModel):
-    evidence_description: str
-    source_or_instance: str
-
-class Argument(BaseModel):
-    argument_title: str
-    argument_description: str
-    supporting_evidence: List[Evidence]
+# === Minimal models ===
+class SimpleArg(BaseModel):
+    argument: str
+    evidence_hint: str
     famous_quote: str
 
-class DebateArguments(BaseModel):
-    arguments: List[Argument]
+class SimpleArgList(BaseModel):
+    arguments: List[SimpleArg]
 
-class Rebuttal(BaseModel):
-    original_argument_title: str
-    counter_argument: str
-    counter_evidence: Evidence
-
-class Rebuttals(BaseModel):
-    rebuttals: List[Rebuttal]
-
-
-# ======== 2. Default Motions List (20 general) ====================
+# === 20 motions ===
 DEFAULT_MOTIONS = [
     "This House Would ban TikTok",
     "This House Believes that AI will replace teachers",
@@ -55,139 +41,100 @@ DEFAULT_MOTIONS = [
     "This House Believes success is luck, not hard work"
 ]
 
-
-# ======== 3. Style Presets ========================================
-PROMPT_STYLES = {
-    "wsdc": """You are an elite WSDC strategist. Return one JSON object only:
-{"argument_title":"...","argument_description":"...","supporting_evidence":[{"evidence_description":"...","source_or_instance":"..."}],"famous_quote":"..."}""",
-    "aggressive": """You are an aggressive strategist. Return one JSON object only in the same structure.""",
-    "policy": """You are a policy debater. Return one JSON object only in the same structure.""",
-    "rhetorical": """You are a public speaker. Return one JSON object only in the same structure."""
+# === generation prompt ===
+SYSTEM_SIMPLE = """
+You must ONLY output a JSON object with the following keys exactly:
+{
+ "argument":"...",
+ "evidence_hint":"...",
+ "famous_quote":"..."
 }
-
-
-# ======== 4. Display helper =======================================
-def show_argument(a: Argument, i: int):
-    st.subheader(f"ARGUMENT {i}: {a.argument_title}")
-    st.write(a.argument_description)
-    for ev in a.supporting_evidence:
-        st.write(f"✅ {ev.evidence_description} ({ev.source_or_instance})")
-    if a.famous_quote:
-        st.write(f"💬 _{a.famous_quote}_")
-    st.markdown("---")
-
-
-def show_rebuttal(r: Rebuttal):
-    st.subheader(f"REBUTTAL to \"{r.original_argument_title}\"")
-    st.write(f"→ {r.counter_argument}")
-    ev = r.counter_evidence
-    st.write(f"✅ {ev.evidence_description} ({ev.source_or_instance})")
-    st.markdown("---")
-
-
-# ======== 5. Safer 1-by-1 Argument Generator =======================
-def generate_one_argument(topic, style, max_retries=3):
-    """
-    Generates ONE argument in favour, uses retry logic & Pydantic. Returns Argument or None.
-    """
-    system_prompt = PROMPT_STYLES[style] + """
-IMPORTANT: Output ONLY a JSON object with EXACT keys shown.
-No markdown or wrapper.
+Do not use extra keys, do not wrap in array, do not add explanations.
 """
-    user_prompt = f"Motion: \"{topic}\". Generate one argument firmly in favour."
 
-    for attempt in range(1, max_retries+1):
-        res = openai.chat.completions.create(
+def generate_one_arg(topic, style, stance="in favour", retries=3):
+    user = f'Motion: "{topic}". Give one strong argument {stance}, with one evidence hint and a short famous quote.'
+    for i in range(1, retries+1):
+        r = openai.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role":"system","content":system_prompt},
-                      {"role":"user","content":user_prompt}],
-            max_tokens=600, temperature=0.7
+            messages=[{"role":"system","content":SYSTEM_SIMPLE},
+                      {"role":"user","content":user}],
+            max_tokens=350,temperature=0.7
         )
-        raw = res.choices[0].message.content.strip()
+        raw = r.choices[0].message.content.strip()
         try:
-            parsed = Argument.model_validate_json(raw)
-            return parsed
+            return SimpleArg.model_validate_json(raw)
         except Exception:
-            st.warning(f"Attempt {attempt}/{max_retries} failed to parse JSON.")
-            st.text(raw)
-
-    st.error("All attempts failed for this argument.")
+            st.warning(f"Attempt {i}/{retries} failed to parse: {raw}")
+    st.error("Failed all attempts. Final raw:")
+    st.text(raw)
     return None
 
-
-# ======== 6. Simulate opponent arguments ===========================
-def simulate_opponent(topic, style):
-    system_prompt = PROMPT_STYLES[style] + """
-Now generate 3 arguments AGAINST the motion. Output ONLY:
-{"arguments":[{...}]}"""
-    user_prompt = f"Motion: \"{topic}\". Provide 3 arguments AGAINST."
-    res = openai.chat.completions.create(
+def generate_opponents(topic, style):
+    prompt = {"role":"system","content":SYSTEM_SIMPLE + "You are now opposing the motion."}
+    user=f'Motion: "{topic}". Provide THREE arguments AGAINST in an array as JSON: {{"arguments":[{{...}},...]}}'
+    r=openai.chat.completions.create(
         model="gpt-3.5-turbo",
-        messages=[{"role":"system","content":system_prompt},
-                  {"role":"user","content":user_prompt}],
-        max_tokens=1100, temperature=0.7
+        messages=[prompt,{"role":"user","content":user}],
+        max_tokens=800
     )
-    return DebateArguments.model_validate_json(res.choices[0].message.content.strip())
+    return SimpleArgList.model_validate_json(r.choices[0].message.content.strip())
 
-
-# ======== 7. Score + AI rebuttal ==================================
-def score_rebuttal(text, opp_title, topic, style):
-    prompt = f"""You are a debate coach. Score this rebuttal (1–10 Logic, Evidence, Relevance, Style).
-Opponent arg: "{opp_title}" Motion: "{topic}" Rebuttal: "{text}"
-Return JSON like {{"Logic":7,"Evidence":6,"Relevance":8,"Style":5,"Suggestion":"..."}}."""
-    r = openai.chat.completions.create(
+def score_rebuttal(text, opp_argument, topic):
+    sc=f"""Score this rebuttal (1–10 Logic,Evidence,Relevance,Style):
+Opponent arg: "{opp_argument}" Motion: "{topic}" Rebuttal: "{text}"
+Return JSON: {{"Logic":7,"Evidence":6,"Relevance":8,"Style":5,"Suggestion":"..."}}"""
+    r=openai.chat.completions.create(
         model="gpt-3.5-turbo",
-        messages=[{"role":"system","content":"You are a coach"},
-                  {"role":"user","content":prompt}],
-        max_tokens=200, temperature=0.3
+        messages=[{"role":"system","content":"debate coach"},{"role":"user","content":sc}],
+        max_tokens=200,temperature=0.3
     )
     return json.loads(r.choices[0].message.content.strip())
 
-
-def generate_rebuttal_for_arg(argument: Argument):
-    sys = """Return ONLY JSON: {"original_argument_title":"...","counter_argument":"...","counter_evidence":{"evidence_description":"...","source_or_instance":"..."}}"""
-    mini = {"arguments":[argument.model_dump()]}
-    r = openai.chat.completions.create(
+def ai_rebuttal(arg_obj):
+    sys="""Only output JSON: {"original_argument":"...","answer":"..."}"""
+    u=f'Opponent: {arg_obj.argument}'
+    r=openai.chat.completions.create(
         model="gpt-3.5-turbo",
-        messages=[{"role":"system","content":sys},
-                  {"role":"user","content":json.dumps(mini)}],
-        max_tokens=600,temperature=0.7
+        messages=[{"role":"system","content":sys},{"role":"user","content":u}],
+        max_tokens=300
     )
-    raw=r.choices[0].message.content.strip()
-    return Rebuttals.model_validate_json('{"rebuttals":['+raw+']}').rebuttals[0]
+    return json.loads(r.choices[0].message.content.strip())
 
+# ==================== Streamlit UI =======================
 
-# ======== 8. Streamlit Web UI =====================================
-st.title("AI Debate Trainer")
+st.title("AI Debate Trainer (Simplified Version)")
 
 if st.button("🎲 Random Motion"):
-    st.session_state['topic'] = random.choice(DEFAULT_MOTIONS)
+    st.session_state['topic']=random.choice(DEFAULT_MOTIONS)
 
 topic = st.text_input("Debate Motion:", st.session_state.get("topic",""))
-style = st.selectbox("Debater Style", list(PROMPT_STYLES.keys()))
+style = st.selectbox("Style", ["wsdc","aggressive","policy","rhetorical"])
 
-if st.button("Generate Constructive (in favour)"):
-    st.header("Your Arguments")
-    arg_list=[]
+if st.button("Generate Arguments (in favour)"):
+    st.header("Your Arguments:")
+    simple_args=[]
     for i in range(1,4):
-        a=generate_one_argument(topic,style)
-        if a: show_argument(a,i)
-        arg_list.append(a)
+        x=generate_one_arg(topic,style,"in favour")
+        if x: 
+            st.subheader(f"ARGUMENT {i}:")
+            st.write(x.argument)
+            st.write(f"📌 Evidence hint: {x.evidence_hint}")
+            st.write(f"💬 {x.famous_quote}")
+        simple_args.append(x)
 
     st.divider()
-    st.header("Simulated Opposition")
-    opp = simulate_opponent(topic,style)
+    st.header("Simulated Opponent:")
+    opp=generate_opponents(topic,style)
 
-    for idx, oa in enumerate(opp.arguments):
-        st.subheader(f"Opposition Arg {idx+1}: {oa.argument_title}")
-        st.write(oa.argument_description)
-        for ev in oa.supporting_evidence:
-            st.write(f"- {ev.evidence_description} ({ev.source_or_instance})")
-        st.write(f"💬 {oa.famous_quote}")
+    for idx,arg in enumerate(opp.arguments):
+        st.subheader(f"Opposition {idx+1}:")
+        st.write(arg.argument)
+        st.write(f"📌 {arg.evidence_hint}")
+        st.write(f"💬 {arg.famous_quote}")
 
-        rtxt = st.text_area("Your rebuttal:", key=f"r_{idx}")
-        if st.button("Score Rebuttal", key=f"score_{idx}"):
-            st.json(score_rebuttal(rtxt, oa.argument_title, topic, style))
-        if st.button("Reveal AI Rebuttal", key=f"ai_{idx}"):
-            rb = generate_rebuttal_for_arg(oa)
-            show_rebuttal(rb)
+        reb=st.text_area("Your rebuttal:", key=f"rr_{idx}")
+        if st.button("Score rebuttal", key=f"s_{idx}"):
+            st.json(score_rebuttal(reb,arg.argument,topic))
+        if st.button("Reveal AI rebuttal", key=f"a_{idx}"):
+            st.json(ai_rebuttal(arg))
