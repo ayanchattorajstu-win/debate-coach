@@ -74,20 +74,34 @@ def generate_opponents(topic, style, retries=3):
     Generates three arguments for the opposition and validates the JSON output.
     Includes retry logic to handle potential parsing errors from the LLM.
     """
-    prompt = {"role":"system","content":SYSTEM_SIMPLE + "You are now opposing the motion. You MUST return an array of 3 JSON objects."}
-    user = f'Motion: "{topic}". Provide THREE arguments AGAINST in an array as JSON: {{"arguments":[{{...}},...]}}'
+    # Modified system prompt to ask for a simple array of JSON objects
+    sys_prompt = """You are now opposing the motion. You MUST ONLY output a JSON array containing exactly three objects. Each object must have the keys: "argument", "evidence_hint", and "famous_quote". Do not add any extra text or explanations."""
+
+    user = f'Motion: "{topic}". Provide THREE arguments AGAINST.'
 
     for i in range(1, retries + 1):
         try:
             r = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[prompt, {"role":"user","content":user}],
+                messages=[{"role":"system", "content": sys_prompt},
+                          {"role":"user", "content": user}],
                 max_tokens=800,
                 temperature=0.7
             )
             raw = r.choices[0].message.content.strip()
-            return SimpleArgList.model_validate_json(raw)
+            
+            # The AI is likely returning a simple JSON array. Let's try to parse it directly.
+            # This is more reliable than manual string splitting which can be brittle.
+            parsed_list = json.loads(raw)
+            
+            # Validate each item in the parsed list with the Pydantic model
+            arguments = [SimpleArg.model_validate(item) for item in parsed_list]
+            
+            # Then, create the SimpleArgList from the validated list
+            return SimpleArgList(arguments=arguments)
+
         except Exception as e:
+            # If validation or parsing fails, print the raw output and error
             st.warning(f"Attempt {i}/{retries} failed to parse JSON from AI: {e}")
             st.text(f"Raw AI Output: {raw}")
 
