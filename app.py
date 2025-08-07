@@ -53,7 +53,21 @@ Do not use extra keys, do not wrap in array, do not add explanations.
 """
 
 def generate_one_arg(topic, style, stance="in favour", retries=3):
-    user = f'Motion: "{topic}". Give one strong argument {stance}, with one evidence hint and a short famous quote.'
+    user = f"""
+    Motion: "{topic}".
+    Your task is to provide one strong argument {stance}, with a specific evidence hint and a short famous quote.
+    The evidence hint should not be a generic statement like "research shows," but should instead suggest a specific type of study, a policy, or a historical event.
+    Example of a good hint: "The successful implementation of a similar policy in a Scandinavian country..."
+    Example of a bad hint: "Studies have shown that..."
+
+    You must ONLY output a JSON object with the following keys exactly:
+    {{
+    "argument":"...",
+    "evidence_hint":"...",
+    "famous_quote":"..."
+    }}
+    Do not use extra keys, do not wrap in array, do not add explanations.
+    """
     for i in range(1, retries+1):
         try:
             r = openai.chat.completions.create(
@@ -80,14 +94,13 @@ def generate_opponents(topic, style, retries=3):
     Your task is to provide exactly three strong arguments against this motion.
     For each argument, you must provide:
     1. A concise "argument" statement.
-    2. A brief "evidence_hint" that points to a possible source or type of evidence.
+    2. A brief "evidence_hint" that is very specific. Instead of a generic phrase like "studies show", reference a type of policy, an economic principle, a historical event, or a specific sociological trend.
     3. A short, relevant "famous_quote".
 
     You must ONLY output a JSON array of three objects, with each object having the keys: "argument", "evidence_hint", and "famous_quote".
     Do not add any extra text, explanations, or wrapping objects. The output must be a valid JSON array.
     """
     
-    # The user message is now simpler, as the system prompt provides the detailed instructions
     user = f'Motion: "{topic}". Provide THREE arguments AGAINST.'
 
     for i in range(1, retries + 1):
@@ -101,22 +114,18 @@ def generate_opponents(topic, style, retries=3):
             )
             raw = r.choices[0].message.content.strip()
             
-            # Use json.loads to parse the array directly
             parsed_list = json.loads(raw)
-            
-            # Validate each item in the parsed list with the Pydantic model
             arguments = [SimpleArg.model_validate(item) for item in parsed_list]
             
-            # Then, create the SimpleArgList from the validated list
             return SimpleArgList(arguments=arguments)
 
         except Exception as e:
-            # If validation or parsing fails, print the raw output and error
             st.warning(f"Attempt {i}/{retries} failed to parse JSON from AI: {e}")
             st.text(f"Raw AI Output: {raw}")
 
     st.error("Failed to generate and parse opponent arguments after multiple attempts.")
     return SimpleArgList(arguments=[])
+
 
 def score_rebuttal(text, opp_argument, topic):
     sc=f"""Score this rebuttal (1–10 Logic,Evidence,Relevance,Style):
