@@ -82,10 +82,10 @@ def generate_one_arg(topic, style, stance="in favour", retries=3):
             st.warning(f"Attempt {i}/{retries} failed to parse: {raw}")
     st.error(f"Failed all attempts. Final raw: {raw}")
     return None
-    
-    def generate_opponents(topic, style, retries=3):
+
+def generate_opponents(topic, style, retries=3):
     """
-    Generates three *truly opposing* arguments designed to dismantle the motion.
+    Generates three truly opposing arguments designed to dismantle the motion.
     """
     sys_prompt = f"""
 You are a ruthless debate opponent whose only goal is to DISPROVE the motion: "{topic}".
@@ -106,8 +106,8 @@ OUTPUT FORMAT ONLY:
 ]
 
 EXAMPLES of OPPOSITION:
-- Motion: "THBT social media is beneficial" → Opp argument: "Social media destroys mental health by promoting addictive and anxiety-inducing behaviours."
-- Motion: "TH would ban zoos" → Opp argument: "Zoos preserve endangered species far more effectively than leaving them in the wild."
+- Motion: "THBT social media is beneficial" -> Opp argument: "Social media destroys mental health by promoting addictive and anxiety-inducing behaviours."
+- Motion: "TH would ban zoos" -> Opp argument: "Zoos preserve endangered species far more effectively than leaving them in the wild."
 
 Now produce 3 such opposing arguments in the JSON format above.
 """
@@ -133,7 +133,7 @@ Now produce 3 such opposing arguments in the JSON format above.
 
     st.error("Failed to generate and parse opponent arguments after multiple attempts.")
     return SimpleArgList(arguments=[])
-    
+
 def score_rebuttal(text, opp_argument, topic):
     sc=f"""Score this rebuttal (1–10 Logic,Evidence,Relevance,Style):
 Opponent arg: "{opp_argument}" Motion: "{topic}" Rebuttal: "{text}"
