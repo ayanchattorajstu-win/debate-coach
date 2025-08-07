@@ -74,9 +74,20 @@ def generate_opponents(topic, style, retries=3):
     Generates three arguments for the opposition and validates the JSON output.
     Includes retry logic to handle potential parsing errors from the LLM.
     """
-    # Modified system prompt to ask for a simple array of JSON objects
-    sys_prompt = """You are now opposing the motion. You MUST ONLY output a JSON array containing exactly three objects. Each object must have the keys: "argument", "evidence_hint", and "famous_quote". Do not add any extra text or explanations."""
+    # Restored and refined system prompt for higher quality output
+    sys_prompt = f"""
+    You are a debate opponent. The motion is "{topic}".
+    Your task is to provide exactly three strong arguments against this motion.
+    For each argument, you must provide:
+    1. A concise "argument" statement.
+    2. A brief "evidence_hint" that points to a possible source or type of evidence.
+    3. A short, relevant "famous_quote".
 
+    You must ONLY output a JSON array of three objects, with each object having the keys: "argument", "evidence_hint", and "famous_quote".
+    Do not add any extra text, explanations, or wrapping objects. The output must be a valid JSON array.
+    """
+    
+    # The user message is now simpler, as the system prompt provides the detailed instructions
     user = f'Motion: "{topic}". Provide THREE arguments AGAINST.'
 
     for i in range(1, retries + 1):
@@ -90,8 +101,7 @@ def generate_opponents(topic, style, retries=3):
             )
             raw = r.choices[0].message.content.strip()
             
-            # The AI is likely returning a simple JSON array. Let's try to parse it directly.
-            # This is more reliable than manual string splitting which can be brittle.
+            # Use json.loads to parse the array directly
             parsed_list = json.loads(raw)
             
             # Validate each item in the parsed list with the Pydantic model
@@ -155,7 +165,10 @@ if st.button("Generate Arguments (in favour)"):
             x=generate_one_arg(topic,style,"in favour")
             if x:
                 st.session_state['my_args'].append(x)
-        st.session_state['opponent_args']=generate_opponents(topic,style).arguments
+        
+        opponent_args_list = generate_opponents(topic, style)
+        if opponent_args_list:
+            st.session_state['opponent_args'] = opponent_args_list.arguments
 
 if st.session_state['my_args']:
     st.header("Your Arguments:")
@@ -184,4 +197,3 @@ if st.session_state['opponent_args']:
             if st.button("Reveal AI rebuttal", key=f"a_{idx}"):
                 with st.spinner("Generating AI rebuttal..."):
                     st.json(ai_rebuttal(arg))
-
