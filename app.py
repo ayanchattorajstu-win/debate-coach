@@ -53,20 +53,19 @@ Do not use extra keys, do not wrap in array, do not add explanations.
 """
 
 def generate_one_arg(topic, style, stance="in favour", retries=3):
+    # Simplified the prompt to be more direct and less prone to formatting errors.
     user = f"""
-    Motion: "{topic}".
-    Your task is to provide one strong argument {stance}, with a specific evidence hint and a short famous quote.
-    The evidence hint should not be a generic statement like "research shows," but should instead suggest a specific type of study, a policy, or a historical event.
-    Example of a good hint: "The successful implementation of a similar policy in a Scandinavian country..."
-    Example of a bad hint: "Studies have shown that..."
+    Motion: "{topic}". Give one strong argument {stance}.
+    Include a specific evidence hint (e.g., a policy, a study, or a historical event).
+    Include a short famous quote.
 
     You must ONLY output a JSON object with the following keys exactly:
     {{
-    "argument":"...",
-    "evidence_hint":"...",
-    "famous_quote":"..."
+     "argument":"...",
+     "evidence_hint":"...",
+     "famous_quote":"..."
     }}
-    Do not use extra keys, do not wrap in array, do not add explanations.
+    Do not use extra keys, do not wrap in array, or add any explanations.
     """
     for i in range(1, retries+1):
         try:
@@ -78,8 +77,10 @@ def generate_one_arg(topic, style, stance="in favour", retries=3):
             )
             raw = r.choices[0].message.content.strip()
             return SimpleArg.model_validate_json(raw)
-        except Exception:
-            st.warning(f"Attempt {i}/{retries} failed to parse: {raw}")
+        except Exception as e:
+            # Added more specific error logging for better debugging
+            st.warning(f"Attempt {i}/{retries} failed to parse JSON from AI: {e}")
+            st.text(f"Raw AI Output: {raw}")
     st.error(f"Failed all attempts. Final raw: {raw}")
     return None
 
