@@ -82,26 +82,36 @@ def generate_one_arg(topic, style, stance="in favour", retries=3):
             st.warning(f"Attempt {i}/{retries} failed to parse: {raw}")
     st.error(f"Failed all attempts. Final raw: {raw}")
     return None
-def generate_opponents(topic, style, retries=3):
-    """
-    Generates three truly opposing arguments by using a more specific prompt.
-    """
-    # A more detailed and adversarial system prompt
-    sys_prompt = f"""
-    You are a highly skilled and critical debate opponent. The motion is "{topic}".
-    Your task is to provide exactly three strong and distinct arguments that directly oppose this motion.
-    Your arguments should not simply present an alternative view, but must actively challenge the core premise or a key assumption of the motion itself.
-
-    For each argument, you must provide:
-    1. A concise "argument" statement that presents a direct counterpoint.
-    2. A brief "evidence_hint" that is very specific. Instead of a generic phrase like "studies show", reference a type of policy, an economic principle, a historical event, or a specific sociological trend that supports your opposition.
-    3. A short, relevant "famous_quote" that reinforces the opposing viewpoint.
-
-    You must ONLY output a JSON array of three objects, with each object having the keys: "argument", "evidence_hint", and "famous_quote".
-    Do not add any extra text, explanations, or wrapping objects. The output must be a valid JSON array.
-    """
     
-    user = f'Motion: "{topic}". Provide THREE arguments AGAINST, designed to directly dismantle the motion.'
+    def generate_opponents(topic, style, retries=3):
+    """
+    Generates three *truly opposing* arguments designed to dismantle the motion.
+    """
+    sys_prompt = f"""
+You are a ruthless debate opponent whose only goal is to DISPROVE the motion: "{topic}".
+You must present hard-hitting, critical arguments that attack the *foundational assumptions* behind the motion.
+
+DO NOT present reasons why the motion might partially work.
+DO NOT hedge or show balance.
+You must argue that the motion is fundamentally WRONG, harmful, misguided, or illogical.
+
+OUTPUT FORMAT ONLY:
+[
+  {{
+    "argument": "<one-sentence direct rebuttal>",
+    "evidence_hint": "<very specific example, trend, or reference>",
+    "famous_quote": "<short sharp quote>"
+  }},
+  ...
+]
+
+EXAMPLES of OPPOSITION:
+- Motion: "THBT social media is beneficial" → Opp argument: "Social media destroys mental health by promoting addictive and anxiety-inducing behaviours."
+- Motion: "TH would ban zoos" → Opp argument: "Zoos preserve endangered species far more effectively than leaving them in the wild."
+
+Now produce 3 such opposing arguments in the JSON format above.
+"""
+    user = f'Motion: "{topic}". Provide EXACTLY THREE opposing arguments, aiming to *destroy* this motion.'
 
     for i in range(1, retries + 1):
         try:
@@ -109,14 +119,12 @@ def generate_opponents(topic, style, retries=3):
                 model="gpt-3.5-turbo",
                 messages=[{"role":"system", "content": sys_prompt},
                           {"role":"user", "content": user}],
-                max_tokens=800,
-                temperature=0.7
+                max_tokens=650,
+                temperature=0.6
             )
             raw = r.choices[0].message.content.strip()
-            
             parsed_list = json.loads(raw)
             arguments = [SimpleArg.model_validate(item) for item in parsed_list]
-            
             return SimpleArgList(arguments=arguments)
 
         except Exception as e:
@@ -125,9 +133,7 @@ def generate_opponents(topic, style, retries=3):
 
     st.error("Failed to generate and parse opponent arguments after multiple attempts.")
     return SimpleArgList(arguments=[])
-
-
-
+    
 def score_rebuttal(text, opp_argument, topic):
     sc=f"""Score this rebuttal (1–10 Logic,Evidence,Relevance,Style):
 Opponent arg: "{opp_argument}" Motion: "{topic}" Rebuttal: "{text}"
