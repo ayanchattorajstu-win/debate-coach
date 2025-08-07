@@ -82,26 +82,26 @@ def generate_one_arg(topic, style, stance="in favour", retries=3):
             st.warning(f"Attempt {i}/{retries} failed to parse: {raw}")
     st.error(f"Failed all attempts. Final raw: {raw}")
     return None
-
 def generate_opponents(topic, style, retries=3):
     """
-    Generates three arguments for the opposition and validates the JSON output.
-    Includes retry logic to handle potential parsing errors from the LLM.
+    Generates three truly opposing arguments by using a more specific prompt.
     """
-    # Restored and refined system prompt for higher quality output
+    # A more detailed and adversarial system prompt
     sys_prompt = f"""
-    You are a debate opponent. The motion is "{topic}".
-    Your task is to provide exactly three strong arguments against this motion.
+    You are a highly skilled and critical debate opponent. The motion is "{topic}".
+    Your task is to provide exactly three strong and distinct arguments that directly oppose this motion.
+    Your arguments should not simply present an alternative view, but must actively challenge the core premise or a key assumption of the motion itself.
+
     For each argument, you must provide:
-    1. A concise "argument" statement.
-    2. A brief "evidence_hint" that is very specific. Instead of a generic phrase like "studies show", reference a type of policy, an economic principle, a historical event, or a specific sociological trend.
-    3. A short, relevant "famous_quote".
+    1. A concise "argument" statement that presents a direct counterpoint.
+    2. A brief "evidence_hint" that is very specific. Instead of a generic phrase like "studies show", reference a type of policy, an economic principle, a historical event, or a specific sociological trend that supports your opposition.
+    3. A short, relevant "famous_quote" that reinforces the opposing viewpoint.
 
     You must ONLY output a JSON array of three objects, with each object having the keys: "argument", "evidence_hint", and "famous_quote".
     Do not add any extra text, explanations, or wrapping objects. The output must be a valid JSON array.
     """
     
-    user = f'Motion: "{topic}". Provide THREE arguments AGAINST.'
+    user = f'Motion: "{topic}". Provide THREE arguments AGAINST, designed to directly dismantle the motion.'
 
     for i in range(1, retries + 1):
         try:
@@ -125,6 +125,7 @@ def generate_opponents(topic, style, retries=3):
 
     st.error("Failed to generate and parse opponent arguments after multiple attempts.")
     return SimpleArgList(arguments=[])
+
 
 
 def score_rebuttal(text, opp_argument, topic):
