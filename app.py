@@ -52,33 +52,19 @@ You must ONLY output a JSON object with the following keys exactly:
 Do not use extra keys, do not wrap in array, do not add explanations.
 """
 
-def generate_one_arg(topic, style, stance="in favour", retries=3):
-    # Simplified the prompt to be more direct and less prone to formatting errors.
-    user = f"""
-    Motion: "{topic}". Give one strong argument {stance}.
-    Include a specific evidence hint (e.g., a policy, a study, or a historical event).
-    Include a short famous quote.
-
-    You must ONLY output a JSON object with the following keys exactly:
-    {{
-     "argument":"...",
-     "evidence_hint":"...",
-     "famous_quote":"..."
-    }}
-    Do not use extra keys, do not wrap in array, or add any explanations.
-    """
+def generate_one_arg(user_prompt, retries=3):
+    # This function now takes the full user prompt as an argument
     for i in range(1, retries+1):
         try:
             r = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role":"system","content":SYSTEM_SIMPLE},
-                          {"role":"user","content":user}],
+                          {"role":"user","content":user_prompt}],
                 max_tokens=350,temperature=0.7
             )
             raw = r.choices[0].message.content.strip()
             return SimpleArg.model_validate_json(raw)
         except Exception as e:
-            # Added more specific error logging for better debugging
             st.warning(f"Attempt {i}/{retries} failed to parse JSON from AI: {e}")
             st.text(f"Raw AI Output: {raw}")
     st.error(f"Failed all attempts. Final raw: {raw}")
@@ -178,11 +164,25 @@ style = st.selectbox("Style", ["wsdc","aggressive","policy","rhetorical"])
 if st.button("Generate Arguments (in favour)"):
     with st.spinner("Generating arguments..."):
         st.session_state['my_args']=[]
-        for i in range(1,4):
-            x=generate_one_arg(topic,style,"in favour")
-            if x:
-                st.session_state['my_args'].append(x)
         
+        # Argument 1: Moral/Ethical
+        p1 = f'Motion: "{topic}". Give one strong argument in favour, focused on moral or ethical implications. The evidence hint should be specific, e.g., a philosophical principle, a historical precedent, or a legal framework.'
+        x1 = generate_one_arg(p1)
+        if x1:
+            st.session_state['my_args'].append(x1)
+
+        # Argument 2: Economic/Practical
+        p2 = f'Motion: "{topic}". Give one strong argument in favour, focused on economic or practical benefits. The evidence hint should be specific, e.g., a specific economic model, a case study, or a policy impact report.'
+        x2 = generate_one_arg(p2)
+        if x2:
+            st.session_state['my_args'].append(x2)
+
+        # Argument 3: Societal/Developmental
+        p3 = f'Motion: "{topic}". Give one strong argument in favour, focused on broader societal or human developmental benefits. The evidence hint should be specific, e.g., a sociological trend, a psychological study, or a UN report.'
+        x3 = generate_one_arg(p3)
+        if x3:
+            st.session_state['my_args'].append(x3)
+
         opponent_args_list = generate_opponents(topic, style)
         if opponent_args_list:
             st.session_state['opponent_args'] = opponent_args_list.arguments
